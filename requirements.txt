@@ -1,0 +1,5 @@
+matplotlib==3.8.1
+numpy==1.26.1
+qiskit==0.45.0
+qiskit_aer==0.13.0
+tqdm==4.66.1
