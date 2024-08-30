@@ -284,6 +284,25 @@ def shannon_ent(probs):
             sum = sum + p_i*np.log(p_i)
     return -1*sum
 
+def partial_trace(p,trace_out):
+    """finds the reduced density matrix after tracing out the given indices
+
+    Args:
+        p (numpy.ndarray (2-d)): full density matrix
+        trace_out (list): indices to trace out
+    """
+    d_b = len(trace_out)
+    d_a = int(np.log2(np.shape(p)[0])) - d_b
+    sum = 0
+    for j in range(2**d_b):
+        vec = np.zeros(2**d_b)
+        vec[j]=1.
+        #Necessary because 1-d numpy vectors are equivalent to their transpose, i.e. .conj() will not turn a 1-d row vector into a column vector w/o shape
+        vec.shape=(2**d_b,1)
+        #for this matrix multiplication to be valid we need the LHS to be the identity x a column vector, and RHS to be the identity x a row vector
+        sum = sum + np.kron(np.eye(2**d_a),vec.conj().T)@p@np.kron(np.eye(2**d_a),vec)
+    return sum
+
 def bipartitioning(qubs):
     """
     Generate a list of all bipartitions of a list
@@ -329,7 +348,7 @@ def tripartitioning(qubs):
     qubs (list): list to find all tripartitions of
     
     Returns: 
-    tripartitions (list): list of all bipartitions where each element has 2 lists, the list of elements in the first piece, and the remining list of its complement
+    tripartitions (list): list of all bipartitions where each element has 3 lists, the list of elements in the first piece, and the remining list of its complements
     """
     tripartitions = list()
     #Bipartition a single piece of each bipartition to form a tripartition
@@ -364,6 +383,13 @@ class QCircuit:
             self.density_matrix = np.outer(self.statevector,self.statevector)
             self.unitary = np.eye(2**circuit_size)
             
+            # a list of all qubits in the circuit
+            self.all_qubits = list(range(circuit_size))
+            # a list of all possible subsystems to be analyzed in the circuit
+            subsystems = list(chain.from_iterable(bipartitioning(list(range(self.circuit_size)))))
+            subsystems.sort(key=len)
+            subsystems.pop(0)
+            subsystems.sort()
             # These are all the quantities of interest we will be looking at at specific checkpoints in the. They will all be populated with each call of subsystem_analysis()
             self.avg_sas = []
             self.avg_ssas = []
@@ -381,18 +407,14 @@ class QCircuit:
         """
         norm = 0
         entropy=[]
-        subsystems = list(chain.from_iterable(bipartitioning(list(range(self.circuit_size)))))
-        subsystems.sort(key=len)
-        subsystems.pop(0)
-        subsystems.sort()
         sum_sa = 0
         num_sa_checks = 0
         sum_ssa = 0
         num_ssa_checks = 0
         sum_mmi = 0
         
-        for subsystem in subsystems:
-            p_12 = quantum_info.partial_trace(self.density_matrix,subsystem)
+        for subsystem in self.subsystems:
+            p_12 = partial_trace(self.density_matrix,list(np.delete(self.all_qubits)))
             #to look at ancilla in grovers
             #if len(subsystem) == N-1:
             #    if 5 not in subsystem:
@@ -458,9 +480,10 @@ class QCircuit:
         self.avg_sas.append(sum_sa/num_sa_checks)
         self.avg_ssas.append(sum_ssa/num_ssa_checks)
         self.avg_mmis.append(sum_mmi/num_ssa_checks)
-        for i in range(len(subsystems)):
-            if len(subsystems[i]) == 1:
-                self.single_qubit_entropy_series[subsystems[i][0]].append(entropy[i])
+        self.avg_ings.append(sum_ing/num_ing_checks)
+        for i in range(len(self.subsystems)):
+            if len(self.subsystems[i]) == 1:
+                self.single_qubit_entropy_series[self.subsystems[i][0]].append(entropy[i])
     
     
     def apply_to_circuit(self,U,track_entropies=True):
@@ -475,10 +498,11 @@ class QCircuit:
         self.unitary = self.unitary@U
         if track_entropies == True: self.subsysem_analysis()
         
-    def plot_saturations(self):
-        plt.plot(self.avg_sas, label="Average SA Saturation")
-        plt.plot(self.avg_ssas, label="Average SSA Saturation")
-        plt.plot(self.avg_mmis, label="Average MMI Saturation")
+    def plot_saturations(self,sa=True,ssa=True,mmi=True,ing=True,norms=True):
+        if sa: plt.plot(self.avg_sas, label="Average SA Saturation")
+        if ssa: plt.plot(self.avg_ssas, label="Average SSA Saturation")
+        if mmi: plt.plot(self.avg_mmis, label="Average MMI Saturation")
+        if ing: plt.plot(self.avg_ings, label="Average ingleton Saturation")
         plt.plot(self.norms, label="Entropy Norm")
         plt.legend()
         plt.show()
