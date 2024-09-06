@@ -1,6 +1,6 @@
 import numpy as np
 from qiskit import quantum_info
-from itertools import combinations, chain
+from itertools import combinations, chain, permutations
 import matplotlib.pyplot as plt
 
 # call this map to go from character '0' or '1' to the vector representation
@@ -285,82 +285,81 @@ def shannon_ent(probs):
     return -1*sum
 
 def partial_trace(p,trace_out):
-    """finds the reduced density matrix after tracing out the given indices
+    """ finds the reduced density matrix given indices of bits to trace over
 
     Args:
-        p (numpy.ndarray (2-d)): full density matrix
-        trace_out (list): indices to trace out
+        p (ndarray): density matrix to reduce
+        trace_out (list): indices of bits to trace over
+
+    Returns:
+        ndarray: reduced density matrix after tracing out the given bits
     """
     d_b = len(trace_out)
     d_a = int(np.log2(np.shape(p)[0])) - d_b
-    sum = 0
-    for j in range(2**d_b):
-        vec = np.zeros(2**d_b)
-        vec[j]=1.
-        #Necessary because 1-d numpy vectors are equivalent to their transpose, i.e. .conj() will not turn a 1-d row vector into a column vector w/o shape
-        vec.shape=(2**d_b,1)
-        #for this matrix multiplication to be valid we need the LHS to be the identity x a column vector, and RHS to be the identity x a row vector
-        sum = sum + np.kron(np.eye(2**d_a),vec.conj().T)@p@np.kron(np.eye(2**d_a),vec)
-    return sum
+    p_A = np.zeros((2**d_a,2**d_a))
+    for i in range(2**d_a):
+        for k in range(2**d_a):
+            for j in range(2**d_b):
+                # build the bitstring of the indices, summing over only j
+                bra_bitstring = ""
+                ket_bitstring = ""
+                ik_c = 0 # keep track of which binary digit of i,k 
+                j_c = 0 # keep track of which binary digit of j, summed over
+                for l in range(d_b+d_a):
+                    if l in trace_out:
+                        bra_bitstring = bra_bitstring + int_to_bitstring(j,d_b)[j_c]
+                        ket_bitstring = ket_bitstring + int_to_bitstring(j,d_b)[j_c]
+                        j_c = j_c + 1
+                    else:
+                        bra_bitstring = bra_bitstring + int_to_bitstring(i,d_a)[ik_c]
+                        ket_bitstring = ket_bitstring + int_to_bitstring(k,d_a)[ik_c]
+                        ik_c = ik_c + 1
+                p_A[i][k] = p_A[i][k]+ p[int(bra_bitstring,2)][int(ket_bitstring,2)]
+    return p_A
 
-def bipartitioning(qubs):
+def n_partitioning(qubs, n):
     """
-    Generate a list of all bipartitions of a list
+    Generate a list of all n-partitions of a list.
 
     Parameters:
-    qubs (list): list to find all bipartitions of
-    
-    Returns: 
-    bipartitions (list): list of all bipartitions where each element has 2 lists, the list of elements in the first piece, and the remining list of its complement
-    """
+    lst (list): List to find all n-partitions of
+    n (int): Number of subsets in each partition
 
-    #Number of elements in the overall system
+    Returns:
+    partitions (list): List of all partitions where each partition is a list of n subsets
+    """
     N=len(qubs)
-    bipartitions = list()
-
-    #Loop over number of elements in the first subsystem from 0 to N/2
-    for size_A in range(int(np.ceil(N/2))+1):
-        #Generates a tuple of all combinations that can be made of size_A qubits out of the system
-        combs = combinations(qubs,size_A)
-        #Loop over every possible combination
-        for c in combs:
-            combination = list(c)
-            combination.sort()
-            #Determine the complement of the combination that completes the system
-            complement = qubs[:]
-            for bit in combination:
-                complement.remove(bit)
-            complement.sort()
-            #Each bipartition has 2 subsystems, the list of pieces in the first subsystem, and its complement
-            new_bipartition = [combination,complement]
-            new_bipartition.sort()
-            #Do not store duplicate bipartitions
-            if new_bipartition not in bipartitions:
-                bipartitions.append(new_bipartition)
-    bipartitions.sort()
-    return bipartitions
-
-def tripartitioning(qubs):
-    """
-    Generate a list of all tripartitions of a list
-
-    Parameters:
-    qubs (list): list to find all tripartitions of
+    partitions = []
+    if n==1: return list(range(N))
     
-    Returns: 
-    tripartitions (list): list of all bipartitions where each element has 3 lists, the list of elements in the first piece, and the remining list of its complements
-    """
-    tripartitions = list()
-    #Bipartition a single piece of each bipartition to form a tripartition
-    for bipartition in bipartitioning(qubs):
-        for piece in range(2):
-            for subpartition in bipartitioning(bipartition[piece]):
-                new_tripartition = [subpartition[0],subpartition[1],bipartition[1-piece]]
-                new_tripartition.sort()
-                if new_tripartition not in tripartitions:
-                    tripartitions.append(new_tripartition)
-    tripartitions.sort()
-    return tripartitions
+    if n==2: 
+        #Loop over number of elements in the first subsystem from 0 to N/2
+        for size_A in range(1,int(np.floor(N/2))+1):
+            #Generates a tuple of all combinations that can be made of size_A qubits out of the system
+            combs = combinations(qubs,size_A)
+            #Loop over every possible combination
+            for c in combs:
+                combination = list(c)
+                #Determine the complement of the combination that completes the system
+                complement = qubs[:]
+                for bit in combination:
+                    complement.remove(bit)
+                if size_A == int(N/2):
+                    if [complement, combination] in partitions: break
+                #Each bipartition has 2 subsystems, the list of pieces in the first subsystem, and its complement
+                partitions.append([combination,complement])
+        return partitions
+    
+    else:
+        for partition in n_partitioning(qubs,n-1):
+            for piece in range(n-1):
+                for subpartition in n_partitioning(partition[piece],2):
+                    new_partition=partition[:piece]+[sub for sub in subpartition] + partition[piece+1:]
+                    new_partition.sort()
+                    if new_partition not in partitions:
+                        partitions.append(new_partition)
+    return partitions
+
 
 
 # This is the single object we will use to simulate the quantum computer and track the entropic quantities we are interested in
@@ -386,14 +385,13 @@ class QCircuit:
             # a list of all qubits in the circuit
             self.all_qubits = list(range(circuit_size))
             # a list of all possible subsystems to be analyzed in the circuit
-            subsystems = list(chain.from_iterable(bipartitioning(list(range(self.circuit_size)))))
-            subsystems.sort(key=len)
-            subsystems.pop(0)
-            subsystems.sort()
+            self.subsystems = list(chain.from_iterable(n_partitioning(list(range(self.circuit_size)),2)))
+            self.subsystems.sort(key=len)
             # These are all the quantities of interest we will be looking at at specific checkpoints in the. They will all be populated with each call of subsystem_analysis()
-            self.avg_sas = []
-            self.avg_ssas = []
-            self.avg_mmis = []
+            self.sa = {'avg_saturation':[],'percent_fail':[],'avg_fail_saturation':[]}
+            self.ssa = {'avg_saturation':[],'percent_fail':[],'avg_fail_saturation':[]}
+            self.mmi = {'avg_saturation':[],'percent_fail':[],'avg_fail_saturation':[]}
+            self.ing = {'avg_saturation':[],'percent_fail':[],'avg_fail_saturation':[]}
             self.norms = []
             self.entropies = []
             self.single_qubit_entropy_series =[]
@@ -403,89 +401,118 @@ class QCircuit:
         
         
     def subsysem_analysis(self):
-        """calculates subadditivity, strong subadditivity, and monogamy of mutual information inequality saturations as well as the complete entropy vector and the entropies for individual qubits and populates the associated lists  
-        """
-        norm = 0
-        entropy=[]
-        sum_sa = 0
-        num_sa_checks = 0
-        sum_ssa = 0
-        num_ssa_checks = 0
-        sum_mmi = 0
+        entropies_map = dict()
+        entropy_vector = []
+        sa_i={'sat':0,'fail_sat':0,'num_checks':0,'num_failures':0}
+        ssa_i={'sat':0,'fail_sat':0,'num_checks':0,'num_failures':0}
+        mmi_i={'sat':0,'fail_sat':0,'num_checks':0,'num_failures':0}
+        ing_i={'sat':0,'fail_sat':0,'num_checks':0,'num_failures':0}
         
+        
+        # calculate the entropy of every subsystem ahead of time
+        for subsystem in n_partitioning(self.all_qubits,2):
+            reduced_dm = partial_trace(self.density_matrix,subsystem[1])
+            probs = np.linalg.eigvals(np.array(reduced_dm.data)).tolist()
+            entropy = shannon_ent([p_i.real for p_i in probs])
+            entropies_map[tuple(subsystem[0])] = entropy
+            # S_A always = S_B if S_AB = 0 (S_AB is pure) so we dont waste time calculating it again
+            entropies_map[tuple(subsystem[1])] = entropy
+            entropy_vector.append(entropy)
+        
+        
+        
+        # now for all our entropy inequality checks (see https://arxiv.org/pdf/1505.07839)
+        # we need to look at partitions of each subsystem
         for subsystem in self.subsystems:
-            p_12 = partial_trace(self.density_matrix,list(np.delete(self.all_qubits)))
-            #to look at ancilla in grovers
-            #if len(subsystem) == N-1:
-            #    if 5 not in subsystem:
-            #        print(p_12)
+            # remember the entropy of this subsystem
+            this_subsystem_entropy = entropies_map[tuple(subsystem)]
             
-            probs = np.linalg.eigvals(np.array(p_12.data)).tolist()
-            e = shannon_ent([p_i.real for p_i in probs])
-            entropy.append(e)
-
-            if len(subsystem) == 1:
-                self.single_qubit_entropy_series
-            norm = norm + e**2
-
-            for subsystem_bipartition in bipartitioning(subsystem):
-                p_1 = quantum_info.partial_trace(self.density_matrix,subsystem_bipartition[0])
-                p_2 = quantum_info.partial_trace(self.density_matrix,subsystem_bipartition[1])
-                probs_1 = np.linalg.eigvals(np.array(p_1.data)).tolist()
-                probs_2 = np.linalg.eigvals(np.array(p_2.data)).tolist()
-                e_1 = shannon_ent([p_i.real for p_i in probs_1])
-                e_2 = shannon_ent([p_i.real for p_i in probs_2])
-                sa_saturation = e_1+e_2-e
-                num_sa_checks = num_sa_checks + 1
-                sum_sa = sum_sa + sa_saturation
+            # for all biparitions check subadditivity
+            for subsystem_bipartition in n_partitioning(subsystem,2):
+                sa_saturation = entropies_map[tuple(subsystem_bipartition[0])] + entropies_map[tuple(subsystem_bipartition[1])] - this_subsystem_entropy
+                sa_i['sat'] = sa_i['sat'] + sa_saturation
+                sa_i['num_checks'] = sa_i['num_checks'] + 1
                 if sa_saturation < -1e-10:
-                    print("subadditivity failed for ",end="")
-                    print(subsystem_bipartition)
-                    print("Saturation: "+str(sa_saturation))
+                    sa_i['fail_sat'] = sa_i['fail_sat'] + sa_saturation
+                    sa_i['num_failures'] = sa_i['num_failures'] + 1
+                    
+            # for all tripartitions check strong subadditivity and monogamy of mutual information    
+            for subsystem_tripartition in n_partitioning(subsystem,3):
                 
-                # if len(subsystem_bipartition[0]) == 1 or len(subsystem_bipartition[1]) == 1:
-                #     print("Bipartition: ",end="")
-                #     print(subsystem_bipartition)
-                #     print("SA Saturation: "+str(sa_saturation))
-            for subsystem_tripartition in tripartitioning(subsystem):
-                p_1 = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[0])
-                probs_1 = np.linalg.eigvals(np.array(p_1.data)).tolist()
-                e_1 = shannon_ent([p_i.real for p_i in probs_1])
-                p_2 = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[1])
-                probs_2 = np.linalg.eigvals(np.array(p_2.data)).tolist()
-                e_2 = shannon_ent([p_i.real for p_i in probs_2])
-                p_3 = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[2])
-                probs_3 = np.linalg.eigvals(np.array(p_3.data)).tolist()
-                e_3 = shannon_ent([p_i.real for p_i in probs_3])
-                p_12 = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[0]+subsystem_tripartition[1])
-                probs_12 = np.linalg.eigvals(np.array(p_12.data)).tolist()
-                e_12 = shannon_ent([p_i.real for p_i in probs_12])
-                p_13 = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[0]+subsystem_tripartition[2])
-                probs_13 = np.linalg.eigvals(np.array(p_13.data)).tolist()
-                e_13 = shannon_ent([p_i.real for p_i in probs_13])
-                p_23  = quantum_info.partial_trace(self.density_matrix,subsystem_tripartition[1]+subsystem_tripartition[2])
-                probs_23 = np.linalg.eigvals(np.array(p_23.data)).tolist()
-                e_23 = shannon_ent([p_i.real for p_i in probs_23])
-                ssa_saturation = e_12+e_23-e_2-e
-                sum_ssa = sum_ssa + ssa_saturation
-                num_ssa_checks = num_ssa_checks + 1
-                if ssa_saturation < -1e-10:
-                    print("strong subadditivity failed for ",end="")
-                    print(subsystem_tripartition)
-                    print("Saturation: "+str(ssa_saturation))
-                mmi_saturation = e_12+e_13+e_23-e_1-e_2-e_3-e
-                sum_mmi = sum_mmi + mmi_saturation
-        self.entropies.append(entropy)
-        self.norms.append(np.sqrt(norm)/2**.5)
-        self.avg_sas.append(sum_sa/num_sa_checks)
-        self.avg_ssas.append(sum_ssa/num_ssa_checks)
-        self.avg_mmis.append(sum_mmi/num_ssa_checks)
-        self.avg_ings.append(sum_ing/num_ing_checks)
-        for i in range(len(self.subsystems)):
-            if len(self.subsystems[i]) == 1:
-                self.single_qubit_entropy_series[self.subsystems[i][0]].append(entropy[i])
-    
-    
+                # for ssa, need to check all permutations
+                for permutation in permutations(subsystem_tripartition):
+                    s_ab = entropies_map[tuple(sorted(permutation[0]+permutation[1]))]
+                    s_bc = entropies_map[tuple(sorted(permutation[1]+permutation[2]))]
+                    s_b  = entropies_map[tuple(permutation[1])]
+                    # eq. (2.1) in https://arxiv.org/pdf/1505.07839
+                    ssa_saturation = s_ab+s_bc-s_b-this_subsystem_entropy
+                    ssa_i['sat'] = ssa_i['sat'] + ssa_saturation
+                    ssa_i['num_checks'] = ssa_i['num_checks'] + 1
+                    
+
+                    if ssa_saturation < -1e-10:
+                        ssa_i['fail_sat'] = ssa_i['fail_sat'] + ssa_saturation
+                        ssa_i['num_failures'] = ssa_i['num_failures'] + 1
+                        
+                        
+                # for mmi no permutations are needed
+                s_a = entropies_map[tuple(subsystem_tripartition[0])]
+                s_b  = entropies_map[tuple(permutation[1])] 
+                s_c = entropies_map[tuple(subsystem_tripartition[2])]        
+                s_ab = entropies_map[tuple(sorted(permutation[0]+permutation[1]))]
+                s_bc = entropies_map[tuple(sorted(permutation[1]+permutation[2]))]
+                s_ac = entropies_map[tuple(sorted(subsystem_tripartition[0]+subsystem_tripartition[2]))]
+                # eq. (2.2) in https://arxiv.org/pdf/1505.07839
+                mmi_saturation = s_ab+s_ac+s_bc-s_a-s_b-s_c-this_subsystem_entropy
+                mmi_i['sat'] = mmi_i['sat'] + mmi_saturation
+                mmi_i['num_checks'] = mmi_i['num_checks'] + 1
+                
+                if mmi_saturation < -1e-10:
+                        mmi_i['fail_sat'] = mmi_i['fail_sat'] + mmi_saturation
+                        mmi_i['num_failures'] = mmi_i['num_failures'] + 1
+                        
+            # for all quadpartitions? check ingleton's inequality
+            for subsystem_quadpartition in n_partitioning(subsystem,4):
+                
+                # for ingletons, need to check all permutations
+                for permutation in permutations(subsystem_quadpartition):
+                    e_1  = entropies_map[tuple(permutation[0])]
+                    e_2  = entropies_map[tuple(permutation[1])]
+                    e_123 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[2]))]
+                    e_124 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[3]))]
+                    e_34 = entropies_map[tuple(sorted(permutation[2]+permutation[3]))]
+                    e_12 = entropies_map[tuple(sorted(permutation[0]+permutation[1]))]
+                    e_13 = entropies_map[tuple(sorted(permutation[0]+permutation[2]))]
+                    e_14 = entropies_map[tuple(sorted(permutation[0]+permutation[3]))]
+                    e_23 = entropies_map[tuple(sorted(permutation[1]+permutation[2]))]
+                    e_24 = entropies_map[tuple(sorted(permutation[1]+permutation[3]))]
+                    ing_saturation = e_12+e_13+e_14+e_23+e_24-(e_1+e_2+e_123+e_124+e_34)
+                    
+                    ing_i['sat'] = ing_i['sat'] + ing_saturation
+                    ing_i['num_checks'] = ing_i['num_checks'] + 1
+
+                    if ing_saturation < -1e-10:
+                        ing_i['fail_sat'] = ing_i['fail_sat'] + ing_saturation
+                        ing_i['num_failures'] = ing_i['num_failures'] + 1
+                            
+        #self.entropies.append(entropy_vector)
+        self.norms.append(np.linalg.norm(entropy_vector))
+        ineq_time_series = [self.sa,self.ssa,self.mmi,self.ing]
+        instant_ineq = [sa_i,ssa_i,mmi_i,ing_i]
+        for inequality in range(4):
+            if instant_ineq[inequality]['num_checks'] != 0:
+                ineq_time_series[inequality]['avg_saturation'].append(instant_ineq[inequality]['sat']/instant_ineq[inequality]['num_checks'])
+                ineq_time_series[inequality]['percent_fail'].append(instant_ineq[inequality]['num_failures']/instant_ineq[inequality]['num_checks'])
+            # else: 
+            #     ineq_time_series[inequality]['avg_saturation'].append(0.)
+            #     ineq_time_series[inequality]['percent_fail'].append(0.)   
+            if instant_ineq[inequality]['num_failures'] != 0:
+                ineq_time_series[inequality]['avg_fail_saturation'].append(instant_ineq[inequality]['fail_sat']/instant_ineq[inequality]['num_failures'])
+            # else: 
+            #     ineq_time_series[inequality]['avg_fail_saturation'].append(0.)
+        for bit in range(self.circuit_size):
+            self.single_qubit_entropy_series[bit].append(entropies_map[(bit,)])
+            
     def apply_to_circuit(self,U,track_entropies=True):
         """applies the given unitary to the qubits. unitary must be the correct size for the number of qubits in the circuit. 
 
@@ -498,14 +525,26 @@ class QCircuit:
         self.unitary = self.unitary@U
         if track_entropies == True: self.subsysem_analysis()
         
-    def plot_saturations(self,sa=True,ssa=True,mmi=True,ing=True,norms=True):
-        if sa: plt.plot(self.avg_sas, label="Average SA Saturation")
-        if ssa: plt.plot(self.avg_ssas, label="Average SSA Saturation")
-        if mmi: plt.plot(self.avg_mmis, label="Average MMI Saturation")
-        if ing: plt.plot(self.avg_ings, label="Average ingleton Saturation")
-        plt.plot(self.norms, label="Entropy Norm")
-        plt.legend()
-        plt.show()
+    def plot_saturations(self,savefiles=False,folder=""):
+        ineq_time_series = [self.sa,self.ssa,self.mmi,self.ing]
+        inequality_names = ["Subadditivity","Strong Subadditivity","Monogamy of Mutual Information","Ingleton's Inequality"]
+        for inequality in range(4):
+            fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(15,5))
+            fig.suptitle(inequality_names[inequality])
+            ax1.plot(ineq_time_series[inequality]["avg_saturation"])
+            ax1.set_title("Average Saturation (bits)")
+            ax1.set_xlabel("Number of gates")
+            ax2.plot(ineq_time_series[inequality]["percent_fail"])
+            ax2.set_title("Percent Failure")
+            ax2.set_xlabel("Number of gates")
+            ax3.plot(ineq_time_series[inequality]["avg_fail_saturation"])
+            ax3.set_title("Average Fail Saturation (bits)")
+            ax3.set_xlabel("Number of gates")
+            
+            if savefiles:
+                ax1.figure.savefig(folder+f"{inequality_names[inequality].replace(' ', '_')}.jpg", dpi=300)
+
+        
     
     def plot_single_qubit_entropy(self):
         for i in range(self.N):
