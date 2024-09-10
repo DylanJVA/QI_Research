@@ -334,7 +334,7 @@ def n_partitioning(qubs, n):
     
     if n==2: 
         #Loop over number of elements in the first subsystem from 0 to N/2
-        for size_A in range(1,int(np.floor(N/2))+1):
+        for size_A in range(0,int(np.floor(N/2))+1):
             #Generates a tuple of all combinations that can be made of size_A qubits out of the system
             combs = combinations(qubs,size_A)
             #Loop over every possible combination

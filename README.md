@@ -1,3 +1,3 @@
 # QI_Research
 
-See GroversProj.ipynb
+See QIP_Usage.ipynb for usage and examples
