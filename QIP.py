@@ -360,7 +360,11 @@ def n_partitioning(qubs, n):
                         partitions.append(new_partition)
     return partitions
 
+def mutual(x,y,entropies_map):
+    return entropies_map[tuple(x)] + entropies_map[tuple(y)] - entropies_map[tuple(sorted(x+y))] 
 
+def mutual_conditional(x,y,z,entropies_map):
+    return entropies_map[tuple(sorted(x+z))] + entropies_map[tuple(sorted(y+z))] - entropies_map[tuple(sorted(x+y+z))] - entropies_map[tuple(z)]
 
 # This is the single object we will use to simulate the quantum computer and track the entropic quantities we are interested in
 class QCircuit:
@@ -374,12 +378,13 @@ class QCircuit:
             initial_state (np.ndarray, optional): the initial state of the qubits in the circuit. Defaults to '000...'.
             initial_circuit(QCircuit, optional): allows this circuit to be a continuation of another. 
         """
+        if initial_state is None: self.statevector = bitstrings_to_vector('0'*circuit_size)
+        else: self.statevector = initial_state/np.linalg.norm(initial_state)
+        self.density_matrix = np.outer(self.statevector,self.statevector)
         if initial_circuit == None:
             self.circuit_size = circuit_size
-            if initial_state is None: 
-                self.statevector = bitstrings_to_vector('0'*circuit_size)
-            else:self.statevector=initial_state/np.linalg.norm(initial_state)
-            self.density_matrix = np.outer(self.statevector,self.statevector)
+            
+            
             self.unitary = np.eye(2**circuit_size)
             
             # a list of all qubits in the circuit
@@ -476,18 +481,18 @@ class QCircuit:
                 
                 # for ingletons, need to check all permutations
                 for permutation in permutations(subsystem_quadpartition):
-                    e_1  = entropies_map[tuple(permutation[0])]
-                    e_2  = entropies_map[tuple(permutation[1])]
-                    e_123 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[2]))]
-                    e_124 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[3]))]
-                    e_34 = entropies_map[tuple(sorted(permutation[2]+permutation[3]))]
-                    e_12 = entropies_map[tuple(sorted(permutation[0]+permutation[1]))]
-                    e_13 = entropies_map[tuple(sorted(permutation[0]+permutation[2]))]
-                    e_14 = entropies_map[tuple(sorted(permutation[0]+permutation[3]))]
-                    e_23 = entropies_map[tuple(sorted(permutation[1]+permutation[2]))]
-                    e_24 = entropies_map[tuple(sorted(permutation[1]+permutation[3]))]
-                    ing_saturation = e_12+e_13+e_14+e_23+e_24-(e_1+e_2+e_123+e_124+e_34)
-                    
+                    # e_1  = entropies_map[tuple(permutation[0])]
+                    # e_2  = entropies_map[tuple(permutation[1])]
+                    # e_123 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[2]))]
+                    # e_124 = entropies_map[tuple(sorted(permutation[0]+permutation[1]+permutation[3]))]
+                    # e_34 = entropies_map[tuple(sorted(permutation[2]+permutation[3]))]
+                    # e_12 = entropies_map[tuple(sorted(permutation[0]+permutation[1]))]
+                    # e_13 = entropies_map[tuple(sorted(permutation[0]+permutation[2]))]
+                    # e_14 = entropies_map[tuple(sorted(permutation[0]+permutation[3]))]
+                    # e_23 = entropies_map[tuple(sorted(permutation[1]+permutation[2]))]
+                    # e_24 = entropies_map[tuple(sorted(permutation[1]+permutation[3]))]
+                    # ing_saturation = e_12+e_13+e_14+e_23+e_24-(e_1+e_2+e_123+e_124+e_34)
+                    ing_saturation = mutual_conditional(subsystem_quadpartition[0],subsystem_quadpartition[1],subsystem_quadpartition[2],entropies_map)+mutual_conditional(subsystem_quadpartition[0],subsystem_quadpartition[1],subsystem_quadpartition[3],entropies_map)+mutual(subsystem_quadpartition[2],subsystem_quadpartition[3],entropies_map)-mutual(subsystem_quadpartition[0],subsystem_quadpartition[1],entropies_map)
                     ing_i['sat'] = ing_i['sat'] + ing_saturation
                     ing_i['num_checks'] = ing_i['num_checks'] + 1
 
@@ -495,7 +500,7 @@ class QCircuit:
                         ing_i['fail_sat'] = ing_i['fail_sat'] + ing_saturation
                         ing_i['num_failures'] = ing_i['num_failures'] + 1
                             
-        #self.entropies.append(entropy_vector)
+        self.entropies.append(entropies_map)
         self.norms.append(np.linalg.norm(entropy_vector))
         ineq_time_series = [self.sa,self.ssa,self.mmi,self.ing]
         instant_ineq = [sa_i,ssa_i,mmi_i,ing_i]
