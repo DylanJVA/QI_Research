@@ -253,6 +253,17 @@ def arbitrary_U(U,circuit_size,targets,controls=[],control_bitstring=''):
         normalization = np.linalg.norm(final_U, axis=-1)[:, np.newaxis]
         return final_U/normalization
 
+def generate_random_unitary_matrix(n):
+    """
+    Generate a 2^n x 2^n random unitary matrix.
+    """
+    size = 2**n
+    # Generate a random complex matrix
+    random_matrix = np.random.randn(size, size) + 1j * np.random.randn(size, size)
+    # Perform QR decomposition to obtain a unitary matrix
+    q, _ = np.linalg.qr(random_matrix)
+    return q
+
 
 def checkOperator(U,form='bitstring'):
     """prints the result states after a given operator acts on the computational basis states
@@ -296,7 +307,7 @@ def partial_trace(p,trace_out):
     """
     d_b = len(trace_out)
     d_a = int(np.log2(np.shape(p)[0])) - d_b
-    p_A = np.zeros((2**d_a,2**d_a))
+    p_A = np.zeros((2**d_a,2**d_a),dtype=complex)
     for i in range(2**d_a):
         for k in range(2**d_a):
             for j in range(2**d_b):
@@ -317,7 +328,7 @@ def partial_trace(p,trace_out):
                 p_A[i][k] = p_A[i][k]+ p[int(bra_bitstring,2)][int(ket_bitstring,2)]
     return p_A
 
-def n_partitioning(qubs, n):
+def n_partitioning(qubs, n, allow_empty_systems=True):
     """
     Generate a list of all n-partitions of a list.
 
@@ -333,8 +344,10 @@ def n_partitioning(qubs, n):
     if n==1: return list(range(N))
     
     if n==2: 
+        if allow_empty_systems: rng = range(int(np.floor(N/2))+1)
+        else: rng = range(1, int(np.floor(N/2))+1)
         #Loop over number of elements in the first subsystem from 0 to N/2
-        for size_A in range(0,int(np.floor(N/2))+1):
+        for size_A in rng:
             #Generates a tuple of all combinations that can be made of size_A qubits out of the system
             combs = combinations(qubs,size_A)
             #Loop over every possible combination
@@ -351,9 +364,9 @@ def n_partitioning(qubs, n):
         return partitions
     
     else:
-        for partition in n_partitioning(qubs,n-1):
+        for partition in n_partitioning(qubs,n-1,allow_empty_systems):
             for piece in range(n-1):
-                for subpartition in n_partitioning(partition[piece],2):
+                for subpartition in n_partitioning(partition[piece],2,allow_empty_systems):
                     new_partition=partition[:piece]+[sub for sub in subpartition] + partition[piece+1:]
                     new_partition.sort()
                     if new_partition not in partitions:
@@ -370,7 +383,7 @@ def mutual_conditional(x,y,z,entropies_map):
 class QCircuit:
 
 
-    def __init__(self,circuit_size,initial_state=None,initial_circuit=None):
+    def __init__(self,circuit_size,initial_state=None,initial_circuit=None,allow_empty_systems=True,pure_state=True):
         """constructor for QCircuit class 
 
         Args:
@@ -378,9 +391,14 @@ class QCircuit:
             initial_state (np.ndarray, optional): the initial state of the qubits in the circuit. Defaults to '000...'.
             initial_circuit(QCircuit, optional): allows this circuit to be a continuation of another. 
         """
+        self.allow_empty_systems = allow_empty_systems
+        self.pure_state = pure_state
+        
         if initial_state is None: self.statevector = bitstrings_to_vector('0'*circuit_size)
         else: self.statevector = initial_state/np.linalg.norm(initial_state)
-        self.density_matrix = np.outer(self.statevector,self.statevector)
+        
+        self.density_matrix = np.outer(self.statevector,self.statevector.conj())
+        
         if initial_circuit == None:
             self.circuit_size = circuit_size
             
@@ -390,7 +408,7 @@ class QCircuit:
             # a list of all qubits in the circuit
             self.all_qubits = list(range(circuit_size))
             # a list of all possible subsystems to be analyzed in the circuit
-            self.subsystems = list(chain.from_iterable(n_partitioning(list(range(self.circuit_size)),2)))
+            self.subsystems = list(chain.from_iterable(n_partitioning(list(range(self.circuit_size)),2,self.allow_empty_systems)))
             self.subsystems.sort(key=len)
             # These are all the quantities of interest we will be looking at at specific checkpoints in the. They will all be populated with each call of subsystem_analysis()
             self.sa = {'avg_saturation':[],'percent_fail':[],'avg_fail_saturation':[]}
@@ -415,14 +433,21 @@ class QCircuit:
         
         
         # calculate the entropy of every subsystem ahead of time
-        for subsystem in n_partitioning(self.all_qubits,2):
+        for subsystem in n_partitioning(self.all_qubits,2,self.allow_empty_systems):
             reduced_dm = partial_trace(self.density_matrix,subsystem[1])
             probs = np.linalg.eigvals(np.array(reduced_dm.data)).tolist()
             entropy = shannon_ent([p_i.real for p_i in probs])
             entropies_map[tuple(subsystem[0])] = entropy
-            # S_A always = S_B if S_AB = 0 (S_AB is pure) so we dont waste time calculating it again
-            entropies_map[tuple(subsystem[1])] = entropy
             entropy_vector.append(entropy)
+            if self.pure_state:
+                # S_A always = S_B if S_AB = 0 (S_AB is pure) so we dont waste time calculating it again
+                entropies_map[tuple(subsystem[1])] = entropy
+            else:
+                reduced_dm = partial_trace(self.density_matrix,subsystem[0])
+                probs = np.linalg.eigvals(np.array(reduced_dm.data)).tolist()
+                entropy = shannon_ent([p_i.real for p_i in probs])
+                entropies_map[tuple(subsystem[1])] = entropy
+                entropy_vector.append(entropy)
         
         
         
@@ -433,7 +458,7 @@ class QCircuit:
             this_subsystem_entropy = entropies_map[tuple(subsystem)]
             
             # for all biparitions check subadditivity
-            for subsystem_bipartition in n_partitioning(subsystem,2):
+            for subsystem_bipartition in n_partitioning(subsystem,2,self.allow_empty_systems):
                 sa_saturation = entropies_map[tuple(subsystem_bipartition[0])] + entropies_map[tuple(subsystem_bipartition[1])] - this_subsystem_entropy
                 sa_i['sat'] = sa_i['sat'] + sa_saturation
                 sa_i['num_checks'] = sa_i['num_checks'] + 1
@@ -442,7 +467,7 @@ class QCircuit:
                     sa_i['num_failures'] = sa_i['num_failures'] + 1
                     
             # for all tripartitions check strong subadditivity and monogamy of mutual information    
-            for subsystem_tripartition in n_partitioning(subsystem,3):
+            for subsystem_tripartition in n_partitioning(subsystem,3,self.allow_empty_systems):
                 
                 # for ssa, need to check all permutations
                 for permutation in permutations(subsystem_tripartition):
@@ -477,7 +502,7 @@ class QCircuit:
                         mmi_i['num_failures'] = mmi_i['num_failures'] + 1
                         
             # for all quadpartitions? check ingleton's inequality
-            for subsystem_quadpartition in n_partitioning(subsystem,4):
+            for subsystem_quadpartition in n_partitioning(subsystem,4,self.allow_empty_systems):
                 
                 # for ingletons, need to check all permutations
                 for permutation in permutations(subsystem_quadpartition):
@@ -512,11 +537,12 @@ class QCircuit:
             #     ineq_time_series[inequality]['avg_saturation'].append(0.)
             #     ineq_time_series[inequality]['percent_fail'].append(0.)   
             if instant_ineq[inequality]['num_failures'] != 0:
-                ineq_time_series[inequality]['avg_fail_saturation'].append(instant_ineq[inequality]['fail_sat']/instant_ineq[inequality]['num_failures'])
+                ineq_time_series[inequality]['avg_fail_saturation'].append(-1*instant_ineq[inequality]['fail_sat']/instant_ineq[inequality]['num_failures'])
             # else: 
             #     ineq_time_series[inequality]['avg_fail_saturation'].append(0.)
         for bit in range(self.circuit_size):
             self.single_qubit_entropy_series[bit].append(entropies_map[(bit,)])
+      
             
     def apply_to_circuit(self,U,track_entropies=True):
         """applies the given unitary to the qubits. unitary must be the correct size for the number of qubits in the circuit. 
@@ -526,8 +552,8 @@ class QCircuit:
             track_entropies (bool, optional): _description_. Defaults to True.
         """
         self.statevector = U@self.statevector
-        self.density_matrix = U@self.density_matrix@U.conj().T
-        self.unitary = self.unitary@U
+        self.density_matrix = U@self.density_matrix@U
+        self.unitary = U@self.unitary
         if track_entropies == True: self.subsysem_analysis()
         
     def plot_saturations(self,savefiles=False,folder=""):
