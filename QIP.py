@@ -12,6 +12,7 @@ y = np.array([[0.,-1.j],[1.j,0.]])
 z = np.array([[1.,0.],[0.,-1.]])
 h = 1/2**.5*np.array([[1.,1.],[1.,-1.]])
 s = np.array([[1.,0.],[0.,1.j]])
+t = np.array([[1., 0.],[0., np.exp(np.pi*1.j/4)]])
 
 
 ### these are my auxiliary helper functions  
@@ -199,7 +200,27 @@ def arbitrary_swap(circuit_size,swap_from,swap_to):
         for bit in transformed_bitstring:
             row = np.kron(row,qubit_map[bit])
         lgm[bitint]=row
-    return lgm
+    return lgm.T
+
+def reorder_U(circuit_size,bits):
+    """_summary_
+
+    Args:
+        circuit_size (int): number of bits in circuit
+        bits (list): bits to move to the end
+
+    Returns:
+        ndarray: unitary permutation matrix which reorders the given bits
+    """
+    lgm = np.zeros((2**circuit_size,2**circuit_size))
+    for bitint in range(2**circuit_size):
+        bitstring = int_to_bitstring(bitint,circuit_size)
+        transformed_bitstring = [bitstring[i] for i in bits] + [bitstring[i] for i in range(len(bitstring)) if i not in bits]
+        row = np.array(1.)
+        for bit in transformed_bitstring:
+            row = np.kron(row,qubit_map[bit])
+        lgm[bitint]=row
+    return lgm.T
 
 def arbitrary_U(U,circuit_size,targets,controls=[],control_bitstring=''):
     """builds the unitary matrix applying on the full circuit given a unitary acting on a smaller number of qubits. handles controlled gates. must specify target bits and total circuit size 
@@ -228,10 +249,12 @@ def arbitrary_U(U,circuit_size,targets,controls=[],control_bitstring=''):
         for i in range(circuit_size-num_sub_qubits):
             total_U = np.kron(total_U,np.eye(2))
         # build the swap gate for swapping the target qubits with the first n qubits 
-        swap = arbitrary_swap(circuit_size,targets,list(range(num_sub_qubits)))
-        # U_final = swap * U * swap
+        swap = reorder_U(circuit_size,targets)
+        # U_final = swap * U * swap*
         # reorders the operator to be in the proper order
-        return swap@total_U@swap
+        final_U = swap.T@total_U@swap
+        normalization = np.linalg.norm(final_U, axis=-1)[:, np.newaxis]
+        return final_U/normalization
     # gate is controlled
     else:
         # if no specific bitstring is given, assume all 1's
@@ -241,15 +264,15 @@ def arbitrary_U(U,circuit_size,targets,controls=[],control_bitstring=''):
         # We build the controlled operator up from what we want it to do for each basis state
         for bitint in range(2**circuit_size):
             bitstring=int_to_bitstring(bitint,circuit_size)
-            #compute the bitstring after swapping the the target qubits with the first n qubits
-            swapped_bitstring = swap_bitstring(int_to_bitstring(bitint,circuit_size),targets,list(range(len(targets))))
+            #compute the bitstring after moving the target qubits to the first n qubits
+            swapped_bitstring = [bitstring[i] for i in targets] + [bitstring[i] for i in range(len(bitstring)) if i not in targets]
             # if all control bits are their respective control values add a term to the full operator
             if all_bits_on(bitstring,controls,control_bitstring):
                 final_U = final_U + np.kron(U,projection_for_bitstring(swapped_bitstring[len(targets):]))
             else:
                 final_U = final_U + np.kron(np.eye(2**len(targets)),projection_for_bitstring(swapped_bitstring[len(targets):]))
-        swap = arbitrary_swap(circuit_size,targets,list(range(len(targets))))
-        final_U = swap@final_U@swap
+        swap = reorder_U(circuit_size,targets)
+        final_U = swap.T@final_U@swap
         normalization = np.linalg.norm(final_U, axis=-1)[:, np.newaxis]
         return final_U/normalization
 
@@ -552,7 +575,7 @@ class QCircuit:
             track_entropies (bool, optional): _description_. Defaults to True.
         """
         self.statevector = U@self.statevector
-        self.density_matrix = U@self.density_matrix@U
+        self.density_matrix = U@self.density_matrix@U.conj().T
         self.unitary = U@self.unitary
         if track_entropies == True: self.subsysem_analysis()
         
