@@ -292,7 +292,7 @@ def shannon_ent(probs):
     sum = 0
     for p_i in probs:
         if p_i > 1e-10:
-            sum = sum + p_i*np.log(p_i)
+            sum = sum + p_i*np.log2(p_i)
     return -1*sum
 
 def partial_trace(p,trace_out):
