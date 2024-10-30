@@ -2,6 +2,7 @@ import numpy as np
 from qiskit import quantum_info
 from itertools import combinations, chain, permutations
 import matplotlib.pyplot as plt
+from scipy.linalg import expm
 
 # call this map to go from character '0' or '1' to the vector representation
 qubit_map = {'0':np.array([1,0]),'1':np.array([0,1])}    
@@ -223,7 +224,7 @@ def reorder_U(circuit_size,bits):
     return lgm.T
 
 def arbitrary_U(U,circuit_size,targets,controls=[],control_bitstring=''):
-    """builds the unitary matrix applying on the full circuit given a unitary acting on a smaller number of qubits. handles controlled gates. must specify target bits and total circuit size 
+    """builds the unitary matrix applying on the full circuit given a un itary acting on a smaller number of qubits. handles controlled gates. must specify target bits and total circuit size 
 
     Args:
         U (numpy.ndarray): unitary acting on the subystem of qubits
@@ -419,7 +420,6 @@ class QCircuit:
         
         if initial_state is None: self.statevector = bitstrings_to_vector('0'*circuit_size)
         else: self.statevector = initial_state/np.linalg.norm(initial_state)
-        
         self.density_matrix = np.outer(self.statevector,self.statevector.conj())
         
         if initial_circuit == None:
@@ -446,7 +446,8 @@ class QCircuit:
         else: self.__dict__.update(initial_circuit.__dict__)
         
         
-    def subsysem_analysis(self):
+    def subsystem_analysis(self):
+        
         entropies_map = dict()
         entropy_vector = []
         sa_i={'sat':0,'fail_sat':0,'num_checks':0,'num_failures':0}
@@ -577,7 +578,7 @@ class QCircuit:
         self.statevector = U@self.statevector
         self.density_matrix = U@self.density_matrix@U.conj().T
         self.unitary = U@self.unitary
-        if track_entropies == True: self.subsysem_analysis()
+        if track_entropies == True: self.subsystem_analysis()
         
     def plot_saturations(self,savefiles=False,folder=""):
         ineq_time_series = [self.sa,self.ssa,self.mmi,self.ing]
@@ -642,6 +643,12 @@ class QCircuit:
         
     def p(self,bit,phi):
         self.apply_to_circuit(arbitrary_U(np.array([[1.,0.],[0.,np.exp(phi*1.j)]]),self.circuit_size,[bit]))    
+    
+    def h_on_set(self,bits):
+        op = 1.
+        for q in bits:
+            op = np.kron(op,h)
+        self.apply_to_circuit(arbitrary_U(op,self.circuit_size,bits))
     
     def reverse_bits(self):
         # two qubits - just swap them
