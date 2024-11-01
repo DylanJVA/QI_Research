@@ -2,6 +2,7 @@ import numpy as np
 from itertools import combinations, chain, permutations
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
+import pickle
 
 # call this map to go from character '0' or '1' to the vector representation
 qubit_map = {'0':np.array([1,0]),'1':np.array([0,1])}    
@@ -402,6 +403,18 @@ def mutual(x,y,entropies_map):
 def mutual_conditional(x,y,z,entropies_map):
     return entropies_map[tuple(sorted(x+z))] + entropies_map[tuple(sorted(y+z))] - entropies_map[tuple(sorted(x+y+z))] - entropies_map[tuple(z)]
 
+def load_from_file(filename="analysis_results.pkl"):
+    """ loads a saved object from file
+
+    Args:
+        filename (str, optional): pkl file which stores the object data. Defaults to "analysis_results.pkl".
+
+    Returns:
+        _type_: object with the saved data
+    """
+    with open(filename, "rb") as file:
+        return pickle.load(file)
+
 # This is the single object we will use to simulate the quantum computer and track the entropic quantities we are interested in
 class QCircuit:
 
@@ -580,6 +593,12 @@ class QCircuit:
         if track_entropies == True: self.subsystem_analysis()
         
     def plot_saturations(self,savefiles=False,folder=""):
+        """plots all inequality check data which was saved in the sa, ssa, mmi, ing dictionaries
+
+        Args:
+            savefiles (bool, optional): save plots to file. Defaults to False.
+            folder (str, optional): folder name to save the plots into. Defaults to "".
+        """
         ineq_time_series = [self.sa,self.ssa,self.mmi,self.ing]
         inequality_names = ["Subadditivity","Strong Subadditivity","Monogamy of Mutual Information","Ingleton's Inequality"]
         for inequality in range(4):
@@ -598,9 +617,18 @@ class QCircuit:
             if savefiles:
                 ax1.figure.savefig(folder+f"{inequality_names[inequality].replace(' ', '_')}.jpg", dpi=300)
 
-        
+    def save_to_file(self, filename="analysis_results.pkl"):
+        """saves an object to file
+
+        Args:
+            filename (str, optional): name of file to write data to. I think? this might need a .pkl extension. Defaults to "analysis_results.pkl".
+        """
+        with open(filename, "wb") as file:
+            pickle.dump(self, file)
+    
     
     def plot_single_qubit_entropy(self):
+        """plots only the entropies of the single qubit systems"""
         for i in range(self.N):
             plt.plot(self.single_qubit_entropy_series[i], label="q"+str(i))
         plt.legend()
