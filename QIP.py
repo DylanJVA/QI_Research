@@ -1,5 +1,4 @@
 import numpy as np
-from qiskit import quantum_info
 from itertools import combinations, chain, permutations
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
